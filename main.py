@@ -1,4 +1,3 @@
-python
 import discord
 from discord.ext import commands, tasks
 import asyncio
@@ -386,4 +385,3 @@ if __name__ == "__main__":
 
     print("🚀 Starting Trackmania Weekly Shorts Bot...")
     bot.run(TOKEN)
-```
