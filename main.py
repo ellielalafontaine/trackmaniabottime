@@ -9,6 +9,7 @@ from typing import Dict, List, Optional
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
+import time
 
 # Bot configuration
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
@@ -483,7 +484,6 @@ def main():
     http_thread.start()
     
     # Give HTTP server a moment to start
-    import time
     time.sleep(2)
     
     # Run the Discord bot
