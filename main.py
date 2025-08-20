@@ -237,10 +237,13 @@ class WeeklyShortsBot(commands.Bot):
         """Keep the Render service awake by pinging itself"""
         if RENDER_APP_URL:
             try:
+                print(f"🏓 Attempting keep-alive ping to {RENDER_APP_URL}")
                 response = requests.get(RENDER_APP_URL, timeout=30)
                 print(f"🏓 Keep-alive ping: {response.status_code}")
             except Exception as e:
                 print(f"⚠️ Keep-alive ping failed: {e}")
+        else:
+            print("⚠️ Keep-alive ping skipped - RENDER_APP_URL not set")
 
     @tasks.loop(hours=1)
     async def weekly_reset_check(self):
@@ -469,6 +472,7 @@ def main():
 
     print("🚀 Starting Trackmania Weekly Shorts Bot...")
     print(f"🌐 Will start HTTP server on port {PORT}")
+    print(f"🔧 RENDER_APP_URL environment variable: {repr(RENDER_APP_URL)}")
     if RENDER_APP_URL:
         print(f"🏓 Keep-alive enabled for: {RENDER_APP_URL}")
     else:
@@ -477,6 +481,10 @@ def main():
     # Start HTTP server in a separate thread
     http_thread = threading.Thread(target=start_http_server, daemon=True)
     http_thread.start()
+    
+    # Give HTTP server a moment to start
+    import time
+    time.sleep(2)
     
     # Run the Discord bot
     try:
