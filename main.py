@@ -7,17 +7,33 @@ import os
 import re
 from typing import Dict, List, Optional
 
-const express = require('express')
-const app = express()
-const port = process.env.PORT || 4000
+import discord
+from discord.ext import commands, tasks
+import asyncio
+import json
+from datetime import datetime, timezone, timedelta
+import os
+import re
+from typing import Dict, List, Optional
+from http.server import BaseHTTPRequestHandler, HTTPServer
+import threading
 
-app.get('/', (req, res) => {
-  res.send('Hello World!')
-})
+# Simple HTTP server for Render health checks
+class SimpleHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Hello World!")
 
-app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`)
-})
+def run_http_server():
+    port = int(os.environ.get("PORT", 10000))  # Render default is 10000
+    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
+    print(f"✅ HTTP server running on port {port}")
+    server.serve_forever()
+
+# Start the HTTP server in a background thread
+threading.Thread(target=run_http_server, daemon=True).start()
 
 # Bot configuration
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
