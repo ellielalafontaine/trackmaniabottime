@@ -1,10 +1,4 @@
-def get_current_week(self) -> str:
-        """Get current week identifier (Year-Week)"""
-        now = datetime.now()
-        year = now.year
-        # Week starts on Sunday for Trackmania
-        week = now.isocalendar()[1]
-        return f"{year}-W{week:02d}"import discord
+import discord
 from discord.ext import commands, tasks
 import asyncio
 import json
@@ -82,6 +76,8 @@ class WeeklyCompetition:
             
         except Exception as e:
             print(f"⚠️ Error saving data: {e}")
+
+    def get_current_week(self) -> str:
         """Get current week identifier (Year-Week)"""
         now = datetime.now()
         year = now.year
@@ -526,4 +522,9 @@ async def show_week_info(ctx):
         color=discord.Color.blue()
     )
 
-    for map_num, map_name
+    for map_num, map_name in bot.competition.week_maps.items():
+        submitted_count = len(bot.competition.get_map_leaderboard(map_num))
+        
+        # Show author time if set
+        author_text = ""
+        if map_num in bot.competition.
