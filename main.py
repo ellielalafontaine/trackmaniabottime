@@ -8,12 +8,14 @@ import re
 from typing import Dict, List, Optional
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import requests
 
 # Bot configuration
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 GUILD_ID = int(os.getenv('GUILD_ID', '0'))
 LEADERBOARD_CHANNEL = int(os.getenv('LEADERBOARD_CHANNEL', '0'))
 PORT = int(os.getenv('PORT', 8080))
+RENDER_APP_URL = os.getenv('RENDER_APP_URL')  # Set this to your app's URL like https://your-app.onrender.com
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -226,8 +228,19 @@ class WeeklyShortsBot(commands.Bot):
 
     async def setup_hook(self):
         self.weekly_reset_check.start()
+        self.keep_alive.start()  # Start keep-alive task
         print("🏁 Trackmania Weekly Shorts Bot is ready!")
         print(f"📅 Current competition week: {self.competition.current_week}")
+
+    @tasks.loop(minutes=14)  # Ping every 14 minutes to prevent sleep
+    async def keep_alive(self):
+        """Keep the Render service awake by pinging itself"""
+        if RENDER_APP_URL:
+            try:
+                response = requests.get(RENDER_APP_URL, timeout=30)
+                print(f"🏓 Keep-alive ping: {response.status_code}")
+            except Exception as e:
+                print(f"⚠️ Keep-alive ping failed: {e}")
 
     @tasks.loop(hours=1)
     async def weekly_reset_check(self):
@@ -456,6 +469,10 @@ def main():
 
     print("🚀 Starting Trackmania Weekly Shorts Bot...")
     print(f"🌐 Will start HTTP server on port {PORT}")
+    if RENDER_APP_URL:
+        print(f"🏓 Keep-alive enabled for: {RENDER_APP_URL}")
+    else:
+        print("⚠️ RENDER_APP_URL not set - keep-alive disabled")
     
     # Start HTTP server in a separate thread
     http_thread = threading.Thread(target=start_http_server, daemon=True)
