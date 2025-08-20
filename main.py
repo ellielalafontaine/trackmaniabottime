@@ -6,11 +6,72 @@ from datetime import datetime, timezone, timedelta
 import os
 import re
 from typing import Dict, List, Optional
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 # Bot configuration
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 GUILD_ID = int(os.getenv('GUILD_ID', '0'))
 LEADERBOARD_CHANNEL = int(os.getenv('LEADERBOARD_CHANNEL', '0'))
+PORT = int(os.getenv('PORT', 8080))
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/html')
+        self.end_headers()
+        
+        # Create a simple status page
+        status_html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Trackmania Weekly Shorts Bot</title>
+            <meta http-equiv="refresh" content="30">
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 40px; background: #2c2f33; color: white; }}
+                .container {{ max-width: 600px; margin: 0 auto; }}
+                .status {{ background: #23272a; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+                .online {{ color: #43b581; }}
+                .info {{ color: #7289da; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🏁 Trackmania Weekly Shorts Bot</h1>
+                <div class="status">
+                    <h2 class="online">✅ Bot Status: Online</h2>
+                    <p class="info">Current Week: {bot.competition.current_week if 'bot' in globals() and bot.competition else 'Loading...'}</p>
+                    <p class="info">Registered Players: {len(bot.competition.player_names) if 'bot' in globals() and bot.competition else 'Loading...'}</p>
+                    <p>Last Updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}</p>
+                </div>
+                <div class="status">
+                    <h3>Available Commands:</h3>
+                    <ul>
+                        <li><code>!tm register &lt;username&gt;</code> - Register for competition</li>
+                        <li><code>!tm time &lt;map&gt; &lt;time&gt;</code> - Submit a time</li>
+                        <li><code>!tm leaderboard</code> - View overall leaderboard</li>
+                        <li><code>!tm map &lt;number&gt;</code> - View map-specific leaderboard</li>
+                    </ul>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        self.wfile.write(status_html.encode())
+    
+    def log_message(self, format, *args):
+        # Suppress HTTP server logs to keep console clean
+        pass
+
+def start_http_server():
+    """Start HTTP server for Render web service health checks"""
+    try:
+        server = HTTPServer(('0.0.0.0', PORT), HealthCheckHandler)
+        print(f"🌐 HTTP server started on port {PORT}")
+        server.serve_forever()
+    except Exception as e:
+        print(f"❌ HTTP server error: {e}")
 
 class WeeklyCompetition:
     def __init__(self):
@@ -187,11 +248,13 @@ class WeeklyShortsBot(commands.Bot):
             )
             await channel.send(embed=embed)
 
+# Initialize bot
 bot = WeeklyShortsBot()
 
 @bot.event
 async def on_ready():
-    print(f'Bot logged in as {bot.user}!')
+    print(f'🤖 Bot logged in as {bot.user}!')
+    print(f"📊 Loaded {len(bot.competition.player_names)} registered players")
 
 @bot.command(name='register')
 async def register_player(ctx, *, trackmania_username: str):
@@ -378,11 +441,33 @@ def format_time(ms: int) -> str:
 
     return f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
 
-if __name__ == "__main__":
+async def run_bot():
+    """Run the Discord bot"""
+    try:
+        await bot.start(TOKEN)
+    except Exception as e:
+        print(f"❌ Bot error: {e}")
+
+def main():
     if not TOKEN:
         print("❌ Please set DISCORD_BOT_TOKEN environment variable")
         print(f"Current TOKEN value: {repr(TOKEN)}")
         exit(1)
 
     print("🚀 Starting Trackmania Weekly Shorts Bot...")
-    bot.run(TOKEN)
+    print(f"🌐 Will start HTTP server on port {PORT}")
+    
+    # Start HTTP server in a separate thread
+    http_thread = threading.Thread(target=start_http_server, daemon=True)
+    http_thread.start()
+    
+    # Run the Discord bot
+    try:
+        bot.run(TOKEN)
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user")
+    except Exception as e:
+        print(f"❌ Bot crashed: {e}")
+
+if __name__ == "__main__":
+    main()
