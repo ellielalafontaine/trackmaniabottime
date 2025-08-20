@@ -381,6 +381,7 @@ def format_time(ms: int) -> str:
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ Please set DISCORD_BOT_TOKEN environment variable")
+        print(f"Current TOKEN value: {repr(TOKEN)}")
         exit(1)
 
     print("🚀 Starting Trackmania Weekly Shorts Bot...")
