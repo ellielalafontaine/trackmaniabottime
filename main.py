@@ -1,4 +1,10 @@
-import discord
+def get_current_week(self) -> str:
+        """Get current week identifier (Year-Week)"""
+        now = datetime.now()
+        year = now.year
+        # Week starts on Sunday for Trackmania
+        week = now.isocalendar()[1]
+        return f"{year}-W{week:02d}"import discord
 from discord.ext import commands, tasks
 import asyncio
 import json
@@ -6,34 +12,6 @@ from datetime import datetime, timezone, timedelta
 import os
 import re
 from typing import Dict, List, Optional
-
-import discord
-from discord.ext import commands, tasks
-import asyncio
-import json
-from datetime import datetime, timezone, timedelta
-import os
-import re
-from typing import Dict, List, Optional
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
-
-# Simple HTTP server for Render health checks
-class SimpleHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Hello World!")
-
-def run_http_server():
-    port = int(os.environ.get("PORT", 10000))  # Render default is 10000
-    server = HTTPServer(("0.0.0.0", port), SimpleHandler)
-    print(f"✅ HTTP server running on port {port}")
-    server.serve_forever()
-
-# Start the HTTP server in a background thread
-threading.Thread(target=run_http_server, daemon=True).start()
 
 # Bot configuration
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
@@ -44,6 +22,7 @@ class WeeklyCompetition:
     """Manages weekly competition data"""
 
     def __init__(self):
+        self.data_file = "competition_data.json"
         self.current_week = self.get_current_week()
         self.player_times = {}  # {discord_id: {map_num: time_ms, ...}}
         self.player_names = {}  # {discord_id: tm_username}
@@ -55,8 +34,54 @@ class WeeklyCompetition:
             4: "Map 4 - Short Track Delta",
             5: "Map 5 - Short Track Epsilon"
         }
+        self.load_data()
 
-    def get_current_week(self) -> str:
+    def load_data(self):
+        """Load data from JSON file"""
+        try:
+            if os.path.exists(self.data_file):
+                with open(self.data_file, 'r') as f:
+                    data = json.load(f)
+                
+                # Load player names (these persist forever)
+                self.player_names = {int(k): v for k, v in data.get('player_names', {}).items()}
+                
+                # Load current week data
+                saved_week = data.get('current_week', '')
+                if saved_week == self.current_week:
+                    # Same week, load everything
+                    self.player_times = {int(k): {int(map_k): map_v for map_k, map_v in v.items()} 
+                                       for k, v in data.get('player_times', {}).items()}
+                    self.author_times = {int(k): v for k, v in data.get('author_times', {}).items()}
+                    print(f"📊 Loaded existing data for week {self.current_week}")
+                else:
+                    # New week, reset times but keep player names
+                    self.player_times = {}
+                    self.author_times = {}
+                    print(f"🆕 New week detected! Reset times, kept {len(self.player_names)} registered players")
+                    self.save_data()  # Save the reset state
+            else:
+                print("📝 No existing data file found, starting fresh")
+        except Exception as e:
+            print(f"⚠️ Error loading data: {e}")
+            print("Starting with fresh data")
+
+    def save_data(self):
+        """Save data to JSON file"""
+        try:
+            data = {
+                'current_week': self.current_week,
+                'player_names': self.player_names,
+                'player_times': self.player_times,
+                'author_times': self.author_times,
+                'last_updated': datetime.now().isoformat()
+            }
+            
+            with open(self.data_file, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+        except Exception as e:
+            print(f"⚠️ Error saving data: {e}")
         """Get current week identifier (Year-Week)"""
         now = datetime.now()
         year = now.year
@@ -69,6 +94,7 @@ class WeeklyCompetition:
         self.player_names[discord_id] = tm_username
         if discord_id not in self.player_times:
             self.player_times[discord_id] = {}
+        self.save_data()  # Save after registration
 
     def add_time(self, discord_id: int, map_num: int, time_ms: int) -> bool:
         """Add or update a player's time for a specific map"""
@@ -82,6 +108,7 @@ class WeeklyCompetition:
             self.player_times[discord_id] = {}
 
         self.player_times[discord_id][map_num] = time_ms
+        self.save_data()  # Save after time submission
         return True
 
     def set_author_time(self, map_num: int, time_ms: int) -> bool:
@@ -90,6 +117,7 @@ class WeeklyCompetition:
             return False
         
         self.author_times[map_num] = time_ms
+        self.save_data()  # Save after setting author time
         return True
 
     def get_map_leaderboard(self, map_num: int) -> List[Dict]:
@@ -150,10 +178,14 @@ class WeeklyCompetition:
 
     def reset_week(self):
         """Reset for new week"""
+        old_week = self.current_week
         self.current_week = self.get_current_week()
         self.player_times = {}
         self.author_times = {}  # Reset author times too
         # Keep player_names registered
+        self.save_data()  # Save the reset state
+        print(f"🔄 Week reset from {old_week} to {self.current_week}")
+        print(f"📝 Kept {len(self.player_names)} registered players")
 
 class WeeklyShortsBot(commands.Bot):
     def __init__(self):
@@ -494,116 +526,4 @@ async def show_week_info(ctx):
         color=discord.Color.blue()
     )
 
-    for map_num, map_name in bot.competition.week_maps.items():
-        submitted_count = len(bot.competition.get_map_leaderboard(map_num))
-        
-        # Show author time if set
-        author_text = ""
-        if map_num in bot.competition.author_times:
-            author_time = format_time(bot.competition.author_times[map_num])
-            author_text = f"\n🏅 Author: {author_time}"
-        
-        embed.add_field(
-            name=f"Map {map_num}",
-            value=f"{map_name}\n👥 {submitted_count} times{author_text}",
-            inline=True
-        )
-
-    embed.add_field(
-        name="📝 How to Submit",
-        value="Use `!tm time <map#> <time>`\nExample: `!tm time 1 1:23.456`",
-        inline=False
-    )
-
-    await ctx.send(embed=embed)
-
-@bot.command(name='reset')
-@commands.has_permissions(administrator=True)
-async def manual_reset(ctx):
-    """Manually reset the weekly competition (Admin only)"""
-    old_week = bot.competition.current_week
-    bot.competition.reset_week()
-    await ctx.send(f"✅ Manually reset from {old_week} to {bot.competition.current_week}")
-
-@bot.command(name='delete')
-async def delete_time(ctx, map_num: int):
-    """Delete your time for a specific map"""
-    if ctx.author.id not in bot.competition.player_names:
-        await ctx.send("❌ Please register first!")
-        return
-
-    if map_num not in range(1, 6):
-        await ctx.send("❌ Map number must be between 1 and 5!")
-        return
-
-    times = bot.competition.player_times.get(ctx.author.id, {})
-    if map_num not in times:
-        await ctx.send(f"❌ You haven't submitted a time for Map {map_num} yet!")
-        return
-
-    del bot.competition.player_times[ctx.author.id][map_num]
-    await ctx.send(f"✅ Deleted your time for Map {map_num}")
-
-def parse_time(time_str: str) -> Optional[int]:
-    """Parse various time formats to milliseconds"""
-    time_str = time_str.strip().replace(',', '.')  # Handle European decimal format
-
-    # Format: 1:23.456 or 1:23:456
-    match = re.match(r'^(\d+):(\d{1,2})[:.](\d{1,3})$', time_str)
-    if match:
-        minutes, seconds, ms = match.groups()
-        ms = ms.ljust(3, '0')[:3]  # Pad or truncate to 3 digits
-        return int(minutes) * 60000 + int(seconds) * 1000 + int(ms)
-
-    # Format: 83.456
-    match = re.match(r'^(\d+)\.(\d{1,3})$', time_str)
-    if match:
-        seconds, ms = match.groups()
-        ms = ms.ljust(3, '0')[:3]  # Pad or truncate to 3 digits
-        return int(seconds) * 1000 + int(ms)
-
-    # Format: 83456 (pure milliseconds)
-    match = re.match(r'^(\d+)$', time_str)
-    if match:
-        return int(time_str)
-
-    return None
-
-def format_time(ms: int) -> str:
-    """Format milliseconds to MM:SS.mmm"""
-    if ms <= 0:
-        return "00:00.000"
-
-    minutes = ms // 60000
-    seconds = (ms % 60000) // 1000
-    milliseconds = ms % 1000
-
-    return f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
-
-def get_rank_emoji(rank: int) -> str:
-    """Get emoji for rank position"""
-    emojis = {1: "🥇", 2: "🥈", 3: "🥉"}
-    return emojis.get(rank, "🏁")
-
-# Error handling
-@bot.event
-async def on_command_error(ctx, error):
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ You don't have permission to use this command!")
-    elif isinstance(error, commands.CommandNotFound):
-        await ctx.send("❌ Unknown command! Use `!tm help` for available commands.")
-    elif isinstance(error, commands.BadArgument):
-        await ctx.send("❌ Invalid argument! Check the command format.")
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send("❌ Missing required argument! Check the command format.")
-    else:
-        print(f"Error: {error}")
-        await ctx.send("❌ Something went wrong!")
-
-if __name__ == "__main__":
-    if not TOKEN:
-        print("❌ Please set DISCORD_BOT_TOKEN environment variable")
-        exit(1)
-
-    print("🚀 Starting Trackmania Weekly Shorts Bot...")
-    bot.run(TOKEN)
+    for map_num, map_name
