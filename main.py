@@ -7,6 +7,18 @@ import os
 import re
 from typing import Dict, List, Optional
 
+const express = require('express')
+const app = express()
+const port = process.env.PORT || 4000
+
+app.get('/', (req, res) => {
+  res.send('Hello World!')
+})
+
+app.listen(port, () => {
+  console.log(`Example app listening on port ${port}`)
+})
+
 # Bot configuration
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 GUILD_ID = int(os.getenv('GUILD_ID', '0'))  # Your server ID
