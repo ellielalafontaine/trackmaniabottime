@@ -212,6 +212,39 @@ class WeeklyCompetition:
 
         return sorted(players, key=lambda x: (-x['maps_completed'], -x['author_medals'], x['tm_username'].lower()))
 
+    def get_overall_totals_leaderboard(self) -> List[Dict]:
+        """Get leaderboard based on total time across all completed maps"""
+        players = []
+
+        for discord_id in self.player_times:
+            times = self.player_times[discord_id]
+            if not times:
+                continue
+
+            # Calculate total time (only include players who have completed all 5 maps)
+            if len(times) == 5:
+                total_time = sum(times.values())
+                players.append({
+                    'discord_id': discord_id,
+                    'tm_username': self.player_names.get(discord_id, 'Unknown'),
+                    'total_time': total_time,
+                    'individual_times': times
+                })
+
+        # Sort by total time
+        sorted_players = sorted(players, key=lambda x: x['total_time'])
+        
+        # Calculate splits from first place
+        if sorted_players:
+            first_time = sorted_players[0]['total_time']
+            for player in sorted_players:
+                if player['total_time'] == first_time:
+                    player['split'] = None
+                else:
+                    player['split'] = player['total_time'] - first_time
+
+        return sorted_players
+
     def reset_week(self):
         old_week = self.current_week
         self.current_week = self.get_current_week()
@@ -343,45 +376,65 @@ async def set_author_time(ctx, map_num: int, *, time_str: str):
 
 @bot.command(name='leaderboard', aliases=['lb'])
 async def show_leaderboard(ctx):
-    leaderboard = bot.competition.get_overall_leaderboard()
-    if not leaderboard:
+    # Check if anyone has submitted times
+    has_times = any(bot.competition.player_times.values())
+    if not has_times:
         await ctx.send("📊 No times submitted yet this week!")
         return
 
+    description = f"**Week {bot.competition.current_week} Leaderboard**\n\n"
+    
+    # Get medal emojis
+    medals = ["🥇", "🥈", "🥉"]
+    
+    # Process each map
+    for map_num in range(1, 6):
+        map_leaderboard = bot.competition.get_map_leaderboard(map_num)
+        
+        description += f"**Map {map_num}**\n"
+        
+        if not map_leaderboard:
+            description += "No times submitted\n\n"
+            continue
+            
+        for i, player in enumerate(map_leaderboard[:3]):  # Show top 3
+            medal = medals[i] if i < len(medals) else f"#{i+1}"
+            time_str = format_time(player['time'])
+            
+            if player['split'] is None:
+                split_text = ""
+            else:
+                split_str = format_time(player['split'])
+                split_text = f"  (+{split_str})"
+            
+            description += f"{medal} {player['tm_username']} — {time_str}{split_text}\n"
+        
+        description += "\n"
+    
+    # Add overall totals section
+    overall_totals = bot.competition.get_overall_totals_leaderboard()
+    if overall_totals:
+        description += "**Overall Totals**\n"
+        for i, player in enumerate(overall_totals[:3]):  # Show top 3
+            medal = medals[i] if i < len(medals) else f"#{i+1}"
+            time_str = format_time(player['total_time'])
+            
+            if player['split'] is None:
+                split_text = ""
+            else:
+                split_str = format_time(player['split'])
+                split_text = f"  (+{split_str})"
+            
+            description += f"{medal} {player['tm_username']} — {time_str}{split_text}\n"
+    else:
+        description += "**Overall Totals**\nNo players have completed all 5 maps yet"
+
+    # Create embed
     embed = discord.Embed(
-        title=f"🏁 Weekly Shorts Leaderboard - {bot.competition.current_week}",
-        description="All player times across the 5 maps",
+        title="🏁 Weekly Shorts Leaderboard",
+        description=description,
         color=discord.Color.green()
     )
-
-    for i, player in enumerate(leaderboard[:10], 1):
-        times_display = []
-        for map_num in range(1, 6):
-            if map_num in player['individual_times']:
-                time_ms = player['individual_times'][map_num]
-                time_str = format_time(time_ms)
-                
-                medal = ""
-                if map_num in bot.competition.author_times:
-                    if time_ms <= bot.competition.author_times[map_num]:
-                        medal = "🏅"
-                
-                times_display.append(f"**{map_num}:** {time_str}{medal}")
-            else:
-                times_display.append(f"**{map_num}:** ❌")
-        
-        times_text = " | ".join(times_display)
-        
-        maps_done = player['maps_completed']
-        author_medals = player['author_medals']
-        medal_text = f" | 🏅{author_medals}" if author_medals > 0 else ""
-        summary = f"📊 {maps_done}/5 maps{medal_text}"
-
-        embed.add_field(
-            name=f"#{i} - {player['tm_username']}",
-            value=f"{times_text}\n{summary}",
-            inline=False
-        )
 
     await ctx.send(embed=embed)
 
@@ -480,19 +533,4 @@ def main():
         print("⚠️ RENDER_APP_URL not set - keep-alive disabled")
     
     # Start HTTP server in a separate thread
-    http_thread = threading.Thread(target=start_http_server, daemon=True)
-    http_thread.start()
-    
-    # Give HTTP server a moment to start
-    time.sleep(2)
-    
-    # Run the Discord bot
-    try:
-        bot.run(TOKEN)
-    except KeyboardInterrupt:
-        print("\n🛑 Bot stopped by user")
-    except Exception as e:
-        print(f"❌ Bot crashed: {e}")
-
-if __name__ == "__main__":
-    main()
+    http_thread = threading.Thread(target=start_http_server, daemo
