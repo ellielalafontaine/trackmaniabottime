@@ -533,4 +533,19 @@ def main():
         print("⚠️ RENDER_APP_URL not set - keep-alive disabled")
     
     # Start HTTP server in a separate thread
-    http_thread = threading.Thread(target=start_http_server, daemo
+    http_thread = threading.Thread(target=start_http_server, daemon=True)n=True)
+    http_thread.start()
+    
+    # Give HTTP server a moment to start
+    time.sleep(2)
+    
+    # Run the Discord bot
+    try:
+        bot.run(TOKEN)
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user")
+    except Exception as e:
+        print(f"❌ Bot crashed: {e}")
+
+if __name__ == "__main__":
+    main()
