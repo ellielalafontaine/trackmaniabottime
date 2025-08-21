@@ -533,7 +533,7 @@ def main():
         print("⚠️ RENDER_APP_URL not set - keep-alive disabled")
     
     # Start HTTP server in a separate thread
-    http_thread = threading.Thread(target=start_http_server, daemon=True)n=True)
+    http_thread = threading.Thread(target=start_http_server, daemon=True)
     http_thread.start()
     
     # Give HTTP server a moment to start
