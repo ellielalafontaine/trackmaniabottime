@@ -281,6 +281,8 @@ class WeeklyShortsBot(commands.Bot):
         intents.message_content = True
         super().__init__(command_prefix='!tm ', intents=intents)
         self.competition = WeeklyCompetition()
+        # Remove the default help command so we can create our own
+        self.remove_command('help')
 
     async def setup_hook(self):
         self.weekly_reset_check.start()
@@ -549,7 +551,7 @@ async def show_author_times(ctx):
     
     await ctx.send(embed=embed)
 
-@bot.command(name='help', aliases=['commands', 'h'])
+@bot.command(name='bothelp', aliases=['commands', 'h'])
 async def show_help(ctx):
     """Show all available commands with examples"""
     embed = discord.Embed(
@@ -577,7 +579,7 @@ async def show_help(ctx):
         name="📊 **Information Commands**",
         value=(
             "`!tm authortimes` - View all author medal times\n"
-            "`!tm help` - Show this help message"
+            "`!tm bothelp` - Show this help message"
         ),
         inline=False
     )
@@ -664,3 +666,149 @@ async def show_leaderboard(ctx):
     overall_totals = bot.competition.get_overall_totals_leaderboard()
     if overall_totals:
         description += "**Overall Totals**\n"
+        for i, player in enumerate(overall_totals):  # Show all players who completed all maps
+            if i < 3:
+                medal = medals[i]
+            else:
+                medal = f"#{i+1}"
+            
+            time_str = format_time(player['total_time'])
+            
+            if player['split'] is None:
+                split_text = ""
+            else:
+                split_str = format_time(player['split'])
+                split_text = f"  (+{split_str})"
+            
+            description += f"{medal} {player['tm_username']} — {time_str}{split_text}\n"
+    else:
+        description += "**Overall Totals**\nNo players have completed all 5 maps yet"
+
+    # Create embed
+    embed = discord.Embed(
+        title="🏁 Weekly Shorts Leaderboard",
+        description=description,
+        color=discord.Color.green()
+    )
+    
+    # Add footer showing current week
+    try:
+        week_date = datetime.strptime(bot.competition.current_week, "%Y-%m-%d")
+        week_display = week_date.strftime("Week of %B %d, %Y")
+        embed.set_footer(text=f"{week_display} • Resets Sunday 6:15 PM CET")
+    except:
+        embed.set_footer(text=f"{bot.competition.current_week} • Resets Sunday 6:15 PM CET")
+
+    await ctx.send(embed=embed)
+
+@bot.command(name='map')
+async def show_map_leaderboard(ctx, map_num: int):
+    if map_num not in range(1, 6):
+        await ctx.send("❌ Map number must be between 1 and 5!")
+        return
+
+    map_leaderboard = bot.competition.get_map_leaderboard(map_num)
+    if not map_leaderboard:
+        await ctx.send(f"📊 No times submitted for Map {map_num} yet!")
+        return
+
+    embed = discord.Embed(
+        title=f"🗺️ Map {map_num} Leaderboard",
+        description=bot.competition.week_maps[map_num],
+        color=discord.Color.orange()
+    )
+
+    if map_num in bot.competition.author_times:
+        author_time = format_time(bot.competition.author_times[map_num])
+        embed.add_field(name="🏅 Author Medal", value=f"⏱️ {author_time}", inline=False)
+
+    for i, player in enumerate(map_leaderboard[:10], 1):
+        time_str = format_time(player['time'])
+        
+        if player['split'] is None:
+            display_text = f"⏱️ {time_str}"
+        else:
+            split_str = format_time(player['split'])
+            display_text = f"⏱️ {time_str} (+{split_str})"
+        
+        if map_num in bot.competition.author_times:
+            if player['time'] <= bot.competition.author_times[map_num]:
+                display_text += " :authormedal:"
+
+        embed.add_field(
+            name=f"#{i} - {player['tm_username']}",
+            value=display_text,
+            inline=False
+        )
+
+    await ctx.send(embed=embed)
+
+def parse_time(time_str: str) -> Optional[int]:
+    time_str = time_str.strip().replace(',', '.')
+
+    match = re.match(r'^(\d+):(\d{1,2})[:.](\d{1,3}), time_str)
+    if match:
+        minutes, seconds, ms = match.groups()
+        ms = ms.ljust(3, '0')[:3]
+        return int(minutes) * 60000 + int(seconds) * 1000 + int(ms)
+
+    match = re.match(r'^(\d+)\.(\d{1,3}), time_str)
+    if match:
+        seconds, ms = match.groups()
+        ms = ms.ljust(3, '0')[:3]
+        return int(seconds) * 1000 + int(ms)
+
+    match = re.match(r'^(\d+), time_str)
+    if match:
+        return int(time_str)
+
+    return None
+
+def format_time(ms: int) -> str:
+    if ms <= 0:
+        return "00:00.000"
+
+    minutes = ms // 60000
+    seconds = (ms % 60000) // 1000
+    milliseconds = ms % 1000
+
+    return f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+
+async def run_bot():
+    """Run the Discord bot"""
+    try:
+        await bot.start(TOKEN)
+    except Exception as e:
+        print(f"❌ Bot error: {e}")
+
+def main():
+    if not TOKEN:
+        print("❌ Please set DISCORD_BOT_TOKEN environment variable")
+        print(f"Current TOKEN value: {repr(TOKEN)}")
+        exit(1)
+
+    print("🚀 Starting Trackmania Weekly Shorts Bot...")
+    print(f"🌐 Will start HTTP server on port {PORT}")
+    print(f"🔧 RENDER_APP_URL environment variable: {repr(RENDER_APP_URL)}")
+    if RENDER_APP_URL:
+        print(f"🏓 Keep-alive enabled for: {RENDER_APP_URL}")
+    else:
+        print("⚠️ RENDER_APP_URL not set - keep-alive disabled")
+    
+    # Start HTTP server in a separate thread
+    http_thread = threading.Thread(target=start_http_server, daemon=True)
+    http_thread.start()
+    
+    # Give HTTP server a moment to start
+    time.sleep(2)
+    
+    # Run the Discord bot
+    try:
+        bot.run(TOKEN)
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user")
+    except Exception as e:
+        print(f"❌ Bot crashed: {e}")
+
+if __name__ == "__main__":
+    main()
