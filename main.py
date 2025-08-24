@@ -1,4 +1,96 @@
-import discord
+@bot.command(name='authortimes', aliases=['authors', 'at'])@bot.command(name='compare', aliases=['vs'])
+async def compare_players(ctx, member1: discord.Member = None, member2: discord.Member = None):
+    """Compare two players' times"""
+    if not member1:
+        member1 = ctx.author
+    if not member2:
+        await ctx.send("❌ Please mention a player to compare with! Example: `!tm compare @player`")
+        return
+    
+    if member1.id not in bot.competition.player_names or member2.id not in bot.competition.player_names:
+        await ctx.send("❌ Both players must be registered to compare!")
+        return
+    
+    name1 = bot.competition.player_names[member1.id]
+    name2 = bot.competition.player_names[member2.id]
+    times1 = bot.competition.player_times.get(member1.id, {})
+    times2 = bot.competition.player_times.get(member2.id, {})
+    
+    embed = discord.Embed(
+        title=f"⚔️ {name1} vs {name2}",
+        description="Head-to-head comparison",
+        color=discord.Color.orange()
+    )
+    
+    wins1 = wins2 = ties = 0
+    comparison_text = ""
+    
+    for map_num in range(1, 6):
+        if map_num in times1 and map_num in times2:
+            time1 = times1[map_num]
+            time2 = times2[map_num]
+            
+            if time1 < time2:
+                winner = f"🟢 {name1}"
+                wins1 += 1
+                diff = format_time(time2 - time1)
+            elif time2 < time1:
+                winner = f"🟢 {name2}"
+                wins2 += 1
+                diff = format_time(time1 - time2)
+            else:
+                winner = "🟡 TIE"
+                ties += 1
+                diff = "0.000"
+            
+            comparison_text += f"**Map {map_num}:** {winner} (±{diff})\n"
+        elif map_num in times1:
+            comparison_text += f"**Map {map_num}:** 🟢 {name1} (no time from {name2})\n"
+            wins1 += 1
+        elif map_num in times2:
+            comparison_text += f"**Map {map_num}:** 🟢 {name2} (no time from {name1})\n"
+            wins2 += 1
+        else:
+            comparison_text += f"**Map {map_num}:** ⚪ Neither submitted\n"
+    
+    embed.add_field(name="📊 Results", value=comparison_text, inline=False)
+    embed.add_field(name=f"🏆 {name1}", value=f"{wins1} wins", inline=True)
+    embed.add_field(name=f"🏆 {name2}", value=f"{wins2} wins", inline=True)
+    embed.add_field(name="🤝 Ties", value=f"{ties}", inline=True)
+    
+    await ctx.send(embed=embed)
+
+@bot.command(name='motivate', aliases=['motivation', 'hype'])
+async def motivate_player(ctx):
+    """Get some racing motivation!"""
+    motivations = [
+        "🏋️ Jose, put down the dumbbells and pick up the controller - those muscles won't help you brake later!",
+        "🍕 Jose, that ugly food isn't going to fuel your racing... but somehow you'll still dominate!",
+        "🚴 Grace, you've already survived one crash this week - what's a few virtual walls gonna do?",
+        "🚴 Alex, at least in Trackmania when you crash you just respawn instead of needing bandages!",
+        "🚬 Myka, smoking breaks are for AFTER you beat the author time - priorities!",
+        "🎵 Myka, channel that musical rhythm into perfect racing lines!",
+        "🍷 Jurbi, save the wine for celebrating your victory lap!",
+        "🚌 Jurbi, the bus may be slow but your racing doesn't have to be!",
+        "📺 Alistair, those old TV shows taught you patience - now use it to nail that perfect run!",
+        "🎮 Alistair, I know you hate playing with friends, but you love beating them at racing!",
+        "💪 Margo, use that strength to grip the controller while you demolish the competition!",
+        "📏 Margo, being tall gives you a better view of the track - use that advantage!",
+        "😍 Margo, you're handsome AND fast? Save some talent for the rest of OTAW!",
+        "📅 OTAW crew, it's One Thing A Week and this week's thing is SPEED!",
+        "🏁 Time to show everyone what One Thing A Week mastery looks like on the track!"
+    ]
+    
+    import random
+    motivation = random.choice(motivations)
+    
+    embed = discord.Embed(
+        title="💪 OTAW Racing Motivation",
+        description=motivation,
+        color=discord.Color.red()
+    )
+    
+    await ctx.send(embed=embed)import discord
 from discord.ext import commands, tasks
 import asyncio
 import json
@@ -10,6 +102,7 @@ import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import requests
 import time
+import pytz
 
 # Bot configuration
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
@@ -133,10 +226,30 @@ class WeeklyCompetition:
             print(f"⚠️ Error saving data: {e}")
 
     def get_current_week(self) -> str:
-        now = datetime.now()
-        year = now.year
-        week = now.isocalendar()[1]
-        return f"{year}-W{week:02d}"
+        """Get current week based on Sunday 6:15 PM CET reset time"""
+        cet = pytz.timezone('Europe/Berlin')  # CET/CEST timezone
+        now_cet = datetime.now(cet)
+        
+        # Calculate days since last Sunday
+        weekday = now_cet.weekday()  # Monday=0, Sunday=6
+        days_since_sunday = (weekday + 1) % 7  # Convert so Sunday=0
+        
+        # Find the most recent Sunday 6:15 PM
+        if days_since_sunday == 0:  # It's Sunday
+            if now_cet.time() < datetime.strptime("18:15", "%H:%M").time():
+                # Before 6:15 PM on Sunday, use previous Sunday
+                days_back = 7
+            else:
+                # After 6:15 PM on Sunday, use today
+                days_back = 0
+        else:
+            days_back = days_since_sunday
+        
+        week_start = now_cet - timedelta(days=days_back)
+        week_start = week_start.replace(hour=18, minute=15, second=0, microsecond=0)
+        
+        # Format as YYYY-MM-DD for the Sunday that started this week
+        return week_start.strftime("%Y-%m-%d")
 
     def register_player(self, discord_id: int, tm_username: str):
         self.player_names[discord_id] = tm_username
@@ -279,7 +392,7 @@ class WeeklyShortsBot(commands.Bot):
         else:
             print("⚠️ Keep-alive ping skipped - RENDER_APP_URL not set")
 
-    @tasks.loop(hours=1)
+    @tasks.loop(minutes=5)  # Check every 5 minutes around reset time
     async def weekly_reset_check(self):
         current_week = self.competition.get_current_week()
         if current_week != self.competition.current_week:
@@ -291,11 +404,19 @@ class WeeklyShortsBot(commands.Bot):
             old_week = self.competition.current_week
             self.competition.reset_week()
             
+            # Convert week date back to readable format
+            try:
+                week_date = datetime.strptime(new_week, "%Y-%m-%d")
+                week_display = week_date.strftime("Week of %B %d, %Y")
+            except:
+                week_display = new_week
+            
             embed = discord.Embed(
-                title=f"🆕 New Week Started - {new_week}",
-                description="Time for new Weekly Shorts! Register and submit your times.",
+                title=f"🆕 New Week Started - {week_display}",
+                description="Time for new Weekly Shorts! The maps have reset in-game. Register and submit your times for the new maps!",
                 color=discord.Color.blue()
             )
+            embed.add_field(name="🕕", value="Reset at Sunday 6:15 PM CET", inline=True)
             await channel.send(embed=embed)
 
 # Initialize bot
@@ -343,36 +464,153 @@ async def submit_time(ctx, map_num: int, *, time_str: str):
         embed.add_field(name="Map", value=f"#{map_num}", inline=True)
         embed.add_field(name="Time", value=formatted_time, inline=True)
 
+        # Check for author medal
         if map_num in bot.competition.author_times:
             author_time = bot.competition.author_times[map_num]
             if time_ms <= author_time:
-                embed.add_field(name="🏅", value="Author Medal!", inline=True)
+                embed.add_field(name="🏆", value="Author Medal! :authormedal:", inline=True)
+
+        # Check if they're dominating (1+ second ahead of 2nd place)
+        map_leaderboard = bot.competition.get_map_leaderboard(map_num)
+        if len(map_leaderboard) >= 2:
+            first_place = map_leaderboard[0]
+            second_place = map_leaderboard[1]
+            if (first_place['discord_id'] == ctx.author.id and 
+                second_place['time'] - first_place['time'] >= 1000):  # 1000ms = 1 second
+                embed.add_field(name="🏎️", value="Woah! Slow down speed racer!", inline=True)
+
+        # Easter egg for times ending in 69
+        if str(time_ms).endswith('69'):
+            embed.add_field(name="😏", value="*nice ;)*", inline=True)
 
         await ctx.send(embed=embed)
 
-@bot.command(name='author')
+@bot.command(name='setauthor', aliases=['author'])
 @commands.has_permissions(administrator=True)
 async def set_author_time(ctx, map_num: int, *, time_str: str):
+    """Set author time for a map - only admins can use this"""
     if map_num not in range(1, 6):
         await ctx.send("❌ Map number must be between 1 and 5!")
         return
 
     time_ms = parse_time(time_str)
     if time_ms is None:
-        await ctx.send("❌ Invalid time format!")
+        await ctx.send("❌ Invalid time format! Use formats like: `1:23.456`, `83.456`, or `83456` (ms)")
         return
 
     if not (1000 <= time_ms <= 600000):
-        await ctx.send("❌ Time seems unreasonable")
+        await ctx.send("❌ Time seems unreasonable (must be between 1 second and 10 minutes)")
         return
 
     success = bot.competition.set_author_time(map_num, time_ms)
     if success:
         formatted_time = format_time(time_ms)
-        embed = discord.Embed(title="🏅 Author Time Set!", color=discord.Color.gold())
+        embed = discord.Embed(title="🏆 Author Time Set!", color=discord.Color.gold())
         embed.add_field(name="Map", value=f"#{map_num}", inline=True)
-        embed.add_field(name="Author Time", value=formatted_time, inline=True)
+        embed.add_field(name="Author Time", value=f"{formatted_time} :authormedal:", inline=True)
+        embed.add_field(name="Challenge", value="Beat this time to earn an Author Medal!", inline=False)
+        
+        # Easter egg for author times ending in 69
+        if str(time_ms).endswith('69'):
+            embed.add_field(name="😏", value="*nice ;)*", inline=True)
+            
         await ctx.send(embed=embed)
+
+@bot.command(name='help', aliases=['commands', 'h'])
+async def show_help(ctx):
+    """Show all available commands with examples"""
+    embed = discord.Embed(
+        title="🏁 Trackmania Weekly Shorts Bot Commands",
+        description="Your guide to competitive weekly racing! 🏎️",
+        color=discord.Color.blue()
+    )
+    
+    # Player Commands
+    embed.add_field(
+        name="👤 **Player Commands**",
+        value=(
+            "`!tm register <username>` - Register for weekly competition\n"
+            "`!tm time <map> <time>` - Submit your time (e.g. `!tm time 1 1:23.456`)\n"
+            "`!tm leaderboard` - View weekly leaderboard with all maps\n"
+            "`!tm map <number>` - View specific map leaderboard (1-5)\n"
+            "`!tm compare @player` - Compare your times with another player\n"
+            "`!tm motivate` - Get some racing motivation!"
+        ),
+        inline=False
+    )
+    
+    # Information Commands
+    embed.add_field(
+        name="📊 **Information Commands**",
+        value=(
+            "`!tm authortimes` - View all author medal times\n"
+            "`!tm help` - Show this help message"
+        ),
+        inline=False
+    )
+    
+    # Admin Commands
+    embed.add_field(
+        name="🛠️ **Admin Commands**",
+        value=(
+            "`!tm setauthor <map> <time>` - Set author time for a map\n"
+            "*Only administrators can use these commands*"
+        ),
+        inline=False
+    )
+    
+    # Time Format Examples
+    embed.add_field(
+        name="⏱️ **Time Format Examples**",
+        value=(
+            "`1:23.456` - 1 minute, 23.456 seconds\n"
+            "`83.456` - 83.456 seconds\n"
+            "`83456` - 83,456 milliseconds"
+        ),
+        inline=False
+    )
+    
+    # Footer with current week info
+    try:
+        week_date = datetime.strptime(bot.competition.current_week, "%Y-%m-%d")
+        week_display = week_date.strftime("Week of %B %d, %Y")
+        embed.set_footer(text=f"Current Competition: {week_display} • Next Reset: Sunday 6:15 PM CET")
+    except:
+        embed.set_footer(text=f"Current Week: {bot.competition.current_week} • Next Reset: Sunday 6:15 PM CET")
+    
+    # Add thumbnail/image for visual appeal
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/placeholder/trackmania_logo.png")  # Replace with actual Trackmania logo URL
+    
+    await ctx.send(embed=embed)
+async def show_author_times(ctx):
+    """Show all set author times"""
+    if not bot.competition.author_times:
+        await ctx.send("❌ No author times have been set yet!")
+        return
+    
+    embed = discord.Embed(
+        title="🏆 Author Times",
+        description="Beat these times to earn Author Medals :authormedal:",
+        color=discord.Color.gold()
+    )
+    
+    for map_num in range(1, 6):
+        if map_num in bot.competition.author_times:
+            time_ms = bot.competition.author_times[map_num]
+            formatted_time = format_time(time_ms)
+            embed.add_field(
+                name=f"Map {map_num}",
+                value=f"{formatted_time} :authormedal:",
+                inline=True
+            )
+        else:
+            embed.add_field(
+                name=f"Map {map_num}",
+                value="Not set",
+                inline=True
+            )
+    
+    await ctx.send(embed=embed)
 
 @bot.command(name='leaderboard', aliases=['lb'])
 async def show_leaderboard(ctx):
@@ -397,8 +635,12 @@ async def show_leaderboard(ctx):
             description += "No times submitted\n\n"
             continue
             
-        for i, player in enumerate(map_leaderboard[:3]):  # Show top 3
-            medal = medals[i] if i < len(medals) else f"#{i+1}"
+        for i, player in enumerate(map_leaderboard):  # Show all players
+            if i < 3:
+                medal = medals[i]
+            else:
+                medal = f"#{i+1}"
+            
             time_str = format_time(player['time'])
             
             if player['split'] is None:
@@ -407,7 +649,13 @@ async def show_leaderboard(ctx):
                 split_str = format_time(player['split'])
                 split_text = f"  (+{split_str})"
             
-            description += f"{medal} {player['tm_username']} — {time_str}{split_text}\n"
+            # Add author medal emoji if they beat author time
+            author_medal = ""
+            if map_num in bot.competition.author_times:
+                if player['time'] <= bot.competition.author_times[map_num]:
+                    author_medal = " :authormedal:"
+            
+            description += f"{medal} {player['tm_username']} — {time_str}{split_text}{author_medal}\n"
         
         description += "\n"
     
@@ -415,8 +663,12 @@ async def show_leaderboard(ctx):
     overall_totals = bot.competition.get_overall_totals_leaderboard()
     if overall_totals:
         description += "**Overall Totals**\n"
-        for i, player in enumerate(overall_totals[:3]):  # Show top 3
-            medal = medals[i] if i < len(medals) else f"#{i+1}"
+        for i, player in enumerate(overall_totals):  # Show all players who completed all maps
+            if i < 3:
+                medal = medals[i]
+            else:
+                medal = f"#{i+1}"
+            
             time_str = format_time(player['total_time'])
             
             if player['split'] is None:
@@ -435,6 +687,14 @@ async def show_leaderboard(ctx):
         description=description,
         color=discord.Color.green()
     )
+    
+    # Add footer showing current week
+    try:
+        week_date = datetime.strptime(bot.competition.current_week, "%Y-%m-%d")
+        week_display = week_date.strftime("Week of %B %d, %Y")
+        embed.set_footer(text=f"{week_display} • Resets Sunday 6:15 PM CET")
+    except:
+        embed.set_footer(text=f"{bot.competition.current_week} • Resets Sunday 6:15 PM CET")
 
     await ctx.send(embed=embed)
 
@@ -470,7 +730,7 @@ async def show_map_leaderboard(ctx, map_num: int):
         
         if map_num in bot.competition.author_times:
             if player['time'] <= bot.competition.author_times[map_num]:
-                display_text += " 🏅"
+                display_text += " :authormedal:"
 
         embed.add_field(
             name=f"#{i} - {player['tm_username']}",
@@ -533,7 +793,7 @@ def main():
         print("⚠️ RENDER_APP_URL not set - keep-alive disabled")
     
     # Start HTTP server in a separate thread
-    http_thread = threading.Thread(target=start_http_server, daemon=True)
+    http_thread = threading.Thread(target=start_http_server, daemon=True)n=True)
     http_thread.start()
     
     # Give HTTP server a moment to start
