@@ -267,6 +267,51 @@ class WeeklyCompetition:
 
         return sorted_players
 
+    def get_points_leaderboard(self) -> List[Dict]:
+        """Get leaderboard based on points system"""
+        # Point values for each position
+        point_values = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1]
+        
+        # Calculate points for each player
+        player_points = {}
+        player_total_times = {}
+        
+        # Get points for each map
+        for map_num in range(1, 6):
+            map_leaderboard = self.get_map_leaderboard(map_num)
+            for i, player in enumerate(map_leaderboard):
+                discord_id = player['discord_id']
+                if discord_id not in player_points:
+                    player_points[discord_id] = 0
+                    player_total_times[discord_id] = 0
+                
+                # Award points based on position
+                if i < len(point_values):
+                    player_points[discord_id] += point_values[i]
+                else:
+                    player_points[discord_id] += 1  # 1 point for 11th+ place
+                
+                # Add to total time for tie-breaking
+                player_total_times[discord_id] += player['time']
+        
+        # Create leaderboard entries
+        players = []
+        for discord_id, points in player_points.items():
+            completed_maps = len(self.player_times.get(discord_id, {}))
+            total_time = player_total_times[discord_id] if completed_maps == 5 else None
+            
+            players.append({
+                'discord_id': discord_id,
+                'tm_username': self.player_names.get(discord_id, 'Unknown'),
+                'points': points,
+                'total_time': total_time,
+                'maps_completed': completed_maps
+            })
+        
+        # Sort by points (descending), then by total time (ascending) for tie-breaking
+        # Players with no total time (incomplete maps) go after those with total times
+        return sorted(players, key=lambda x: (-x['points'], x['total_time'] if x['total_time'] is not None else float('inf')))
+
     def reset_week(self):
         old_week = self.current_week
         self.current_week = self.get_current_week()
@@ -303,16 +348,29 @@ class WeeklyShortsBot(commands.Bot):
         else:
             print("⚠️ Keep-alive ping skipped - RENDER_APP_URL not set")
 
-    @tasks.loop(minutes=5)  # Check every 5 minutes around reset time
+    @tasks.loop(minutes=1)  # Check every minute for more precision
     async def weekly_reset_check(self):
         current_week = self.competition.get_current_week()
         if current_week != self.competition.current_week:
             await self.handle_week_reset(current_week)
+    
+    @weekly_reset_check.before_loop
+    async def before_weekly_reset_check(self):
+        await self.wait_until_ready()
 
     async def handle_week_reset(self, new_week: str):
         channel = self.get_channel(LEADERBOARD_CHANNEL)
         if channel:
             old_week = self.competition.current_week
+            
+            # Send final leaderboard BEFORE resetting
+            try:
+                await channel.send("🏁 **FINAL RESULTS** - Week ending now!")
+                await self.send_final_leaderboard(channel)
+            except Exception as e:
+                print(f"⚠️ Failed to send final leaderboard: {e}")
+            
+            # Now reset the week
             self.competition.reset_week()
             
             # Convert week date back to readable format
@@ -329,6 +387,49 @@ class WeeklyShortsBot(commands.Bot):
             )
             embed.add_field(name="🕕", value="Reset at Sunday 6:15 PM CET", inline=True)
             await channel.send(embed=embed)
+    
+    async def send_final_leaderboard(self, channel):
+        """Send the final leaderboard before week reset"""
+        # Check if anyone has submitted times
+        has_times = any(self.competition.player_times.values())
+        if not has_times:
+            await channel.send("📊 No times were submitted this week.")
+            return
+
+        description = f"**Final Results - Week {self.competition.current_week}**\n\n"
+        
+        # Get medal emojis
+        medals = ["🥇", "🥈", "🥉"]
+        
+        # Only show overall standings in final results to keep it concise
+        points_leaderboard = self.competition.get_points_leaderboard()
+        if points_leaderboard:
+            description += "**Final Standings**\n"
+            for i, player in enumerate(points_leaderboard[:10]):  # Top 10 only
+                if i < 3:
+                    medal = medals[i]
+                else:
+                    medal = f"#{i+1}"
+                
+                points_text = f"{player['points']} pts"
+                
+                # Add total time if they completed all maps
+                if player['total_time'] is not None:
+                    time_str = format_time(player['total_time'])
+                    points_text += f" • {time_str}"
+                
+                description += f"{medal} {player['tm_username']} — {points_text}\n"
+        else:
+            description += "**Final Standings**\nNo times submitted this week"
+
+        # Create embed
+        embed = discord.Embed(
+            title="🏆 Week Complete!",
+            description=description,
+            color=discord.Color.gold()
+        )
+        
+        await channel.send(embed=embed)
 
 # Initialize bot
 bot = WeeklyShortsBot()
@@ -379,7 +480,7 @@ async def submit_time(ctx, map_num: int, *, time_str: str):
         if map_num in bot.competition.author_times:
             author_time = bot.competition.author_times[map_num]
             if time_ms <= author_time:
-                embed.add_field(name="🏆", value="Author Medal! :authormedal:", inline=True)
+                embed.add_field(name="🏆", value="Author Medal! <:authormedal:1409260249315021022>", inline=True)
 
         # Check if they're dominating (1+ second ahead of 2nd place)
         map_leaderboard = bot.competition.get_map_leaderboard(map_num)
@@ -418,7 +519,7 @@ async def set_author_time(ctx, map_num: int, *, time_str: str):
         formatted_time = format_time(time_ms)
         embed = discord.Embed(title="🏆 Author Time Set!", color=discord.Color.gold())
         embed.add_field(name="Map", value=f"#{map_num}", inline=True)
-        embed.add_field(name="Author Time", value=f"{formatted_time} :authormedal:", inline=True)
+        embed.add_field(name="Author Time", value=f"{formatted_time} <:authormedal:1409260249315021022>", inline=True)
         embed.add_field(name="Challenge", value="Beat this time to earn an Author Medal!", inline=False)
         
         # Easter egg for author times ending in 69
@@ -529,7 +630,7 @@ async def show_author_times(ctx):
     
     embed = discord.Embed(
         title="🏆 Author Times",
-        description="Beat these times to earn Author Medals :authormedal:",
+        description="Beat these times to earn Author Medals <:authormedal:1409260249315021022>",
         color=discord.Color.gold()
     )
     
@@ -539,7 +640,7 @@ async def show_author_times(ctx):
             formatted_time = format_time(time_ms)
             embed.add_field(
                 name=f"Map {map_num}",
-                value=f"{formatted_time} :authormedal:",
+                value=f"{formatted_time} <:authormedal:1409260249315021022>",
                 inline=True
             )
         else:
@@ -605,6 +706,16 @@ async def show_help(ctx):
         inline=False
     )
     
+    # Scoring System
+    embed.add_field(
+        name="🏆 **Points System**",
+        value=(
+            "1st: 25pts • 2nd: 18pts • 3rd: 15pts • 4th: 12pts • 5th: 10pts\n"
+            "Lower places: 8, 6, 4, 2, 1+ points"
+        ),
+        inline=False
+    )
+    
     # Footer with current week info
     try:
         week_date = datetime.strptime(bot.competition.current_week, "%Y-%m-%d")
@@ -656,33 +767,32 @@ async def show_leaderboard(ctx):
             author_medal = ""
             if map_num in bot.competition.author_times:
                 if player['time'] <= bot.competition.author_times[map_num]:
-                    author_medal = " :authormedal:"
+                    author_medal = " <:authormedal:1409260249315021022>"
             
             description += f"{medal} {player['tm_username']} — {time_str}{split_text}{author_medal}\n"
         
         description += "\n"
     
-    # Add overall totals section
-    overall_totals = bot.competition.get_overall_totals_leaderboard()
-    if overall_totals:
-        description += "**Overall Totals**\n"
-        for i, player in enumerate(overall_totals):  # Show all players who completed all maps
+    # Add overall points and times section
+    points_leaderboard = bot.competition.get_points_leaderboard()
+    if points_leaderboard:
+        description += "**Overall Standings**\n"
+        for i, player in enumerate(points_leaderboard):
             if i < 3:
                 medal = medals[i]
             else:
                 medal = f"#{i+1}"
             
-            time_str = format_time(player['total_time'])
+            points_text = f"{player['points']} pts"
             
-            if player['split'] is None:
-                split_text = ""
-            else:
-                split_str = format_time(player['split'])
-                split_text = f"  (+{split_str})"
+            # Add total time if they completed all maps
+            if player['total_time'] is not None:
+                time_str = format_time(player['total_time'])
+                points_text += f" • {time_str}"
             
-            description += f"{medal} {player['tm_username']} — {time_str}{split_text}\n"
+            description += f"{medal} {player['tm_username']} — {points_text}\n"
     else:
-        description += "**Overall Totals**\nNo players have completed all 5 maps yet"
+        description += "**Overall Standings**\nNo times submitted yet"
 
     # Create embed
     embed = discord.Embed(
@@ -733,7 +843,7 @@ async def show_map_leaderboard(ctx, map_num: int):
         
         if map_num in bot.competition.author_times:
             if player['time'] <= bot.competition.author_times[map_num]:
-                display_text += " :authormedal:"
+                display_text += " <:authormedal:1409260249315021022>"
 
         embed.add_field(
             name=f"#{i} - {player['tm_username']}",
@@ -748,21 +858,21 @@ def parse_time(time_str: str) -> Optional[int]:
     time_str = time_str.strip().replace(',', '.')
 
     # Match format: M:SS.mmm or M:SS:mmm (minutes:seconds.milliseconds)
-    match = re.match(r'^(\d+):(\d{1,2})[:.](\d{1,3})$', time_str)
+    match = re.match(r'^(\d+):(\d{1,2})[:.](\d{1,3}), time_str)
     if match:
         minutes, seconds, ms = match.groups()
         ms = ms.ljust(3, '0')[:3]  # Pad to 3 digits or truncate
         return int(minutes) * 60000 + int(seconds) * 1000 + int(ms)
 
     # Match format: SS.mmm (seconds.milliseconds)
-    match = re.match(r'^(\d+)\.(\d{1,3})$', time_str)
+    match = re.match(r'^(\d+)\.(\d{1,3}), time_str)
     if match:
         seconds, ms = match.groups()
         ms = ms.ljust(3, '0')[:3]  # Pad to 3 digits or truncate
         return int(seconds) * 1000 + int(ms)
 
     # Match format: whole number (assume milliseconds)
-    match = re.match(r'^(\d+)$', time_str)
+    match = re.match(r'^(\d+), time_str)
     if match:
         return int(time_str)
 
