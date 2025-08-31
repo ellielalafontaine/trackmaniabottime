@@ -597,9 +597,12 @@ async def motivate_player(ctx):
         "🏋️ Jose, put down the dumbbells and pick up the controller - those muscles won't help you brake later!",
         "🍕 Jose, that ugly food isn't going to fuel your racing... but somehow you'll still dominate!",
         "🚴 Grace, you've already survived one crash this week - what's a few virtual walls gonna do?",
+        "🚴 Drewe, youre so cute. and so fast. so speedy. Racing is just like counting!",
+        "🚴 If racing really is just like having cats, you're going to crush Alex!",
         "🚴 Alex, at least in Trackmania when you crash you just respawn instead of needing bandages!",
         "🚬 Myka, smoking breaks are for AFTER you beat the author time - priorities!",
         "🎵 Myka, channel that musical rhythm into perfect racing lines!",
+        "🚴 Ellie! Use your retard strength and RACE! THAT! CAR!",
         "🍷 Jurbi, save the wine for celebrating your victory lap!",
         "🚌 Jurbi, the bus may be slow but your racing doesn't have to be!",
         "📺 Alistair, those old TV shows taught you patience - now use it to nail that perfect run!",
@@ -858,7 +861,74 @@ def parse_time(time_str: str) -> Optional[int]:
     time_str = time_str.strip().replace(',', '.')
 
     # Match format: M:SS.mmm or M:SS:mmm (minutes:seconds.milliseconds)
-    match = re.match(r'^(\d+):(\d{1,2})[:.](\d{1,3}), time_str)
+    match = re.match(r'^(\d+):(\d{1,2})[:.](\d{1,3})
+    if match:
+        minutes, seconds, ms = match.groups()
+        ms = ms.ljust(3, '0')[:3]  # Pad to 3 digits or truncate
+        return int(minutes) * 60000 + int(seconds) * 1000 + int(ms)
+
+    # Match format: SS.mmm (seconds.milliseconds)
+    match = re.match(r'^(\d+)\.(\d{1,3}), time_str)
+    if match:
+        seconds, ms = match.groups()
+        ms = ms.ljust(3, '0')[:3]  # Pad to 3 digits or truncate
+        return int(seconds) * 1000 + int(ms)
+
+    # Match format: whole number (assume milliseconds)
+    match = re.match(r'^(\d+), time_str)
+    if match:
+        return int(time_str)
+
+    return None
+
+def format_time(ms: int) -> str:
+    if ms <= 0:
+        return "00:00.000"
+
+    minutes = ms // 60000
+    seconds = (ms % 60000) // 1000
+    milliseconds = ms % 1000
+
+    return f"{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+
+async def run_bot():
+    """Run the Discord bot"""
+    try:
+        await bot.start(TOKEN)
+    except Exception as e:
+        print(f"❌ Bot error: {e}")
+
+def main():
+    if not TOKEN:
+        print("❌ Please set DISCORD_BOT_TOKEN environment variable")
+        print(f"Current TOKEN value: {repr(TOKEN)}")
+        exit(1)
+
+    print("🚀 Starting Trackmania Weekly Shorts Bot...")
+    print(f"🌐 Will start HTTP server on port {PORT}")
+    print(f"🔧 RENDER_APP_URL environment variable: {repr(RENDER_APP_URL)}")
+    if RENDER_APP_URL:
+        print(f"🏓 Keep-alive enabled for: {RENDER_APP_URL}")
+    else:
+        print("⚠️ RENDER_APP_URL not set - keep-alive disabled")
+    
+    # Start HTTP server in a separate thread
+    http_thread = threading.Thread(target=start_http_server, daemon=True)
+    http_thread.start()
+    
+    # Give HTTP server a moment to start
+    time.sleep(2)
+    
+    # Run the Discord bot
+    try:
+        bot.run(TOKEN)
+    except KeyboardInterrupt:
+        print("\n🛑 Bot stopped by user")
+    except Exception as e:
+        print(f"❌ Bot crashed: {e}")
+
+if __name__ == "__main__":
+    main(), time_str)
     if match:
         minutes, seconds, ms = match.groups()
         ms = ms.ljust(3, '0')[:3]  # Pad to 3 digits or truncate
