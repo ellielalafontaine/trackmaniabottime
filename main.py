@@ -626,24 +626,34 @@ async def show_map_leaderboard(ctx, map_num: int):
 
 
 def parse_time(time_str: str) -> Optional[int]:
+    """Parse time string into milliseconds. Supports formats:
+    - M:SS.mmm (minutes:seconds.milliseconds)
+    - M:SS:mmm (minutes:seconds:milliseconds)
+    - SS.mmm (seconds.milliseconds)
+    - NNNNN (raw milliseconds)
+    """
     time_str = time_str.strip().replace(',', '.')
 
     # Match format: M:SS.mmm or M:SS:mmm (minutes:seconds.milliseconds)
-    match = re.match(r'^(\d+):(\d{1,2})[:.](\d{1,3})', time_str)
+    match = re.match(r'^(\d+):(\d{1,2})[:.](\d{1,3})$', time_str)
     if match:
         minutes, seconds, ms = match.groups()
         ms = ms.ljust(3, '0')[:3]  # Pad to 3 digits or truncate
         return int(minutes) * 60000 + int(seconds) * 1000 + int(ms)
 
     # Match format: SS.mmm (seconds.milliseconds)
-    match = re.match(r'^(\d+)\.(\d{1,3})', time_str)
+    match = re.match(r'^(\d+)\.(\d{1,3})$', time_str)
     if match:
         seconds, ms = match.groups()
         ms = ms.ljust(3, '0')[:3]  # Pad to 3 digits or truncate
         return int(seconds) * 1000 + int(ms)
 
     # Match format: whole number (assume milliseconds)
-    match = re.match(r'^(\d+)
+    match = re.match(r'^(\d+)$', time_str)
+    if match:
+        return int(time_str)
+
+    return None
 
 @bot.command(name='setauthor', aliases=['author'])
 @commands.has_permissions(administrator=True)
